@@ -21,51 +21,49 @@ class DatabaseManager:
 
     async def initialize(self):
         self.pool = await asyncpg.create_pool(dsn=self.dsn)
-        await self.create_products_table()
-
-    async def create_products_table(self):
-        async with self.pool.acquire() as connection:
-            # Включаем расширение pg_trgm (если не включено)
-            await connection.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
-            # Создаём таблицу товаров, если её ещё нет
-            await connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS products (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL
-                );
-                """
-            )
-            # Создаём индекс для триграммного поиска
-            await connection.execute(
-                "CREATE INDEX IF NOT EXISTS product_name_trgm_idx ON products USING gin (name gin_trgm_ops);"
-            )
+        # Поскольку таблица, расширение и индекс уже созданы,
+        # просто проверяем доступ к таблице products.
+        try:
+            async with self.pool.acquire() as connection:
+                await connection.execute("SELECT 1 FROM products LIMIT 1;")
+        except Exception as e:
+            print("Ошибка доступа к таблице 'products'. Проверьте, что таблица создана.", e)
 
     async def insert_product(self, product_name: str):
-        async with self.pool.acquire() as connection:
-            await connection.execute("INSERT INTO products (name) VALUES ($1);", product_name)
+        try:
+            async with self.pool.acquire() as connection:
+                await connection.execute("INSERT INTO products (name) VALUES ($1);", product_name)
+        except Exception as e:
+            print("Ошибка вставки продукта:", e)
 
     async def find_products(self, search_query: str):
-        async with self.pool.acquire() as connection:
-            # Устанавливаем более низкий порог похожести, чтобы вернуть больше вариантов
-            await connection.execute("SELECT set_limit(0.1);")
-            return await connection.fetch(
-                """
-                SELECT id, name, similarity(name, $1) AS sim
-                FROM products
-                WHERE name % $1
-                ORDER BY sim DESC;
-                """,
-                search_query
-            )
+        try:
+            async with self.pool.acquire() as connection:
+                # Устанавливаем порог похожести
+                await connection.execute("SELECT set_limit(0.1);")
+                return await connection.fetch(
+                    """
+                    SELECT id, name, similarity(name, $1) AS sim
+                    FROM products
+                    WHERE name % $1
+                    ORDER BY sim DESC;
+                    """,
+                    search_query
+                )
+        except Exception as e:
+            print("Ошибка поиска товаров:", e)
+            return []
 
 
 async def populate_database_from_json(db_manager: DatabaseManager, json_path: str):
-    with open(json_path, "r", encoding="utf-8") as f:
-        products = json.load(f)
-    for product in products:
-        await db_manager.insert_product(clean_product_name(product))
-    print(f"Inserted {len(products)} products into the database.")
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            products = json.load(f)
+        for product in products:
+            await db_manager.insert_product(clean_product_name(product))
+        print(f"Inserted {len(products)} products into the database.")
+    except Exception as e:
+        print("Ошибка заполнения базы данных из JSON:", e)
 
 
 class AddProductState(StatesGroup):
@@ -103,7 +101,7 @@ async def process_search_query(message: types.Message, state: FSMContext, db_man
     query = message.text.strip()
     records = await db_manager.find_products(query)
     if records:
-        # Форматируем ответ: название товара на первой строке, а ниже — процент совпадения
+        # Форматируем ответ: сначала название товара, затем на новой строке процент совпадения
         response = "\n".join([
             f"{r['id']}: {r['name']}\n(Совпадение: {r['sim'] * 100:.2f}%)"
             for r in records
@@ -160,7 +158,7 @@ def create_inline_query_handler(db_manager: DatabaseManager):
         try:
             await inline_query.answer(results, cache_time=1)
         except Exception as e:
-            print("Error answering inline query:", e)
+            print("Ошибка при ответе на inline запрос:", e)
     return handler
 
 
@@ -182,7 +180,7 @@ def create_callback_add_product_handler(bot: Bot):
 async def main():
     db_manager = DatabaseManager("postgresql://postgres:Nikito4ka777@127.0.0.1:5432/database?sslmode=disable")
     await db_manager.initialize()
-    # Если нужно заполнить базу из JSON, раскомментируйте следующую строку:
+    # Если требуется заполнение базы из JSON, раскомментируйте следующую строку:
     # await populate_database_from_json(db_manager, "cleaned_products.json")
 
     default_bot_props = DefaultBotProperties(parse_mode="HTML")
