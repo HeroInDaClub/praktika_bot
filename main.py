@@ -21,8 +21,6 @@ class DatabaseManager:
 
     async def initialize(self):
         self.pool = await asyncpg.create_pool(dsn=self.dsn)
-        # Поскольку таблица, расширение и индекс уже созданы,
-        # просто проверяем доступ к таблице products.
         try:
             async with self.pool.acquire() as connection:
                 await connection.execute("SELECT 1 FROM products LIMIT 1;")
@@ -101,7 +99,6 @@ async def process_search_query(message: types.Message, state: FSMContext, db_man
     query = message.text.strip()
     records = await db_manager.find_products(query)
     if records:
-        # Форматируем ответ: сначала название товара, затем на новой строке процент совпадения
         response = "\n".join([
             f"{r['id']}: {r['name']}\n(Совпадение: {r['sim'] * 100:.2f}%)"
             for r in records
@@ -180,7 +177,7 @@ def create_callback_add_product_handler(bot: Bot):
 async def main():
     db_manager = DatabaseManager("postgresql://postgres:Nikito4ka777@127.0.0.1:5432/database?sslmode=disable")
     await db_manager.initialize()
-    # Если требуется заполнение базы из JSON, раскомментируйте следующую строку:
+
     # await populate_database_from_json(db_manager, "cleaned_products.json")
 
     default_bot_props = DefaultBotProperties(parse_mode="HTML")
