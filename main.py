@@ -53,15 +53,23 @@ class DatabaseManager:
             return []
 
 
-async def populate_database_from_json(db_manager: DatabaseManager, json_path: str):
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            products = json.load(f)
-        for product in products:
-            await db_manager.insert_product(clean_product_name(product))
-        print(f"Inserted {len(products)} products into the database.")
-    except Exception as e:
-        print("Ошибка заполнения базы данных из JSON:", e)
+#async def populate_database_from_json(db_manager: DatabaseManager, json_path: str):
+#    try:
+#        with open(json_path, "r", encoding="utf-8") as f:
+#            products = json.load(f)
+#        count = 0
+#        for product in products:
+#            await db_manager.insert_product(clean_product_name(product))
+#            count += 1
+#        # После вставки всех записей обновляем поле search_vector для тех записей, где оно пустое
+#        async with db_manager.pool.acquire() as connection:
+#            await connection.execute(
+#                "UPDATE products SET search_vector = to_tsvector('russian', name) WHERE search_vector IS NULL;"
+#            )
+#        print(f"Inserted {count} products into the database and computed search vectors.")
+#    except Exception as e:
+#        print("Ошибка заполнения базы данных из JSON:", e)
+
 
 
 class AddProductState(StatesGroup):
@@ -112,12 +120,14 @@ async def process_search_query(message: types.Message, state: FSMContext, db_man
 def create_process_product_name_handler(db_manager: DatabaseManager):
     async def handler(message: types.Message, state: FSMContext):
         await process_product_name(message, state, db_manager)
+
     return handler
 
 
 def create_process_search_query_handler(db_manager: DatabaseManager):
     async def handler(message: types.Message, state: FSMContext):
         await process_search_query(message, state, db_manager)
+
     return handler
 
 
@@ -156,6 +166,7 @@ def create_inline_query_handler(db_manager: DatabaseManager):
             await inline_query.answer(results, cache_time=1)
         except Exception as e:
             print("Ошибка при ответе на inline запрос:", e)
+
     return handler
 
 
@@ -171,20 +182,23 @@ async def callback_add_product(callback_query: types.CallbackQuery, state: FSMCo
 def create_callback_add_product_handler(bot: Bot):
     async def handler(callback_query: types.CallbackQuery, state: FSMContext):
         await callback_add_product(callback_query, state, bot)
+
     return handler
+
+
+MIGRATE_DATA = False  # Измените на True для выполнения миграции данных из JSON
 
 
 async def main():
     db_manager = DatabaseManager("postgresql://postgres:Nikito4ka777@127.0.0.1:5432/database?sslmode=disable")
     await db_manager.initialize()
-
-    # await populate_database_from_json(db_manager, "cleaned_products.json")
+    #if MIGRATE_DATA:
+        # Если нужно выполнить миграцию, раскомментируйте следующую строку:
+        #await populate_database_from_json(db_manager, "cleaned_products.json")
 
     default_bot_props = DefaultBotProperties(parse_mode="HTML")
     bot = Bot(token="7431345797:AAHla9cdL2pxqQ0suM8B2FAnl_KxtRqRayw", default=default_bot_props)
-
     await bot.delete_webhook()
-
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
